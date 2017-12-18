@@ -1,4 +1,5 @@
 # file format: date_chirp_virus_cells_techrep#_biorep#.xlsx
+# csv file: All technical replicates should go on the same, unique line with comma-separation. 
 
 from xlrd import open_workbook
 import sys
@@ -19,8 +20,9 @@ def parseArguments():
 	parser.add_argument('--mtr', dest = "mtr", type = int, nargs = '?', default = 1, help = "Minimum number of tech reps")
 	parser.add_argument('--mbr', dest = "mbr", type = int, nargs = '?', default = -1, help = "Minimum number of bio reps")
 	parser.add_argument('--s', dest = "s", type = float, nargs = '?', default = 100.0, help = "Minimum score")
+	parser.add_argument('--lp', dest = "lp", type = float, nargs = '?', default = 5.0, help = "Minimum log prob")
 	args = parser.parse_args()	
-	return args.csv, args.mc, args.tr, args.br, args.cr, args.mp, args.mtr, args.mbr, args.s
+	return args.csv, args.mc, args.tr, args.br, args.cr, args.mp, args.mtr, args.mbr, args.s, args.lp
 
 def extractName(protein_info, protein_info_list):
 	try:
@@ -33,7 +35,7 @@ def extractName(protein_info, protein_info_list):
 
 	return prot_id
 
-def combineTechFiles(tech_reps, exp_per_tech, tech_per_bio, num_comb_tech_exp, file_prefix, min_tech, min_score):
+def combineTechFiles(tech_reps, num_tech_reps, num_bio_reps, num_comb_tech_exp, file_prefix, min_tech, min_score, min_log):
 	# Function that combines data across technical replicates and creates a new spreadsheet for each set of technical replicates
 	# comb_tech_exp[i][prot_id][j] entries:
 	# j = 0: UniProt ID
@@ -47,7 +49,7 @@ def combineTechFiles(tech_reps, exp_per_tech, tech_per_bio, num_comb_tech_exp, f
 	comb_tech_exp = [{} for i in range(num_comb_tech_exp)]
 	comb_tech_files = []
 	for i in range(num_comb_tech_exp):
-		for j in range(exp_per_tech):
+		for j in range(num_tech_reps):
 			prot_name_set = set()
 			prot_UniID = {}
 			prot_count = {}
@@ -77,7 +79,7 @@ def combineTechFiles(tech_reps, exp_per_tech, tech_per_bio, num_comb_tech_exp, f
 				prot_num_aa[prot_id] = num_aa
 
 			for row_index in range(1, sheet_spectra.nrows):
-				if sheet_spectra.cell(row_index, 13).value >= min_score:
+				if sheet_spectra.cell(row_index, 13).value >= min_score and sheet_spectra.cell(row_index, 16).value >= min_log:
 					protein_info = str(sheet_spectra.cell(row_index, 18).value)
 					if protein_info.find("Reverse") != -1:
 							continue
@@ -117,7 +119,7 @@ def combineTechFiles(tech_reps, exp_per_tech, tech_per_bio, num_comb_tech_exp, f
 
 		for prot_id in comb_tech_exp[i]:
 			if len(comb_tech_exp[i][prot_id][1]) >= min_tech:
-				num_zeroes = exp_per_tech - len(comb_tech_exp[i][prot_id][1])
+				num_zeroes = num_tech_reps - len(comb_tech_exp[i][prot_id][1])
 				while num_zeroes > 0:
 					comb_tech_exp[i][prot_id][1].append(0.0)
 					comb_tech_exp[i][prot_id][3].append(0.0)
@@ -126,7 +128,7 @@ def combineTechFiles(tech_reps, exp_per_tech, tech_per_bio, num_comb_tech_exp, f
 				comb_tech_exp[i].pop(prot_id)
 
 	for i in range(num_comb_tech_exp):
-		name = csv_prefix + "_" + file_prefix[i] + "_%s" % (str(i % tech_per_bio + 1)) + "_tech" + ".xls"
+		name = csv_prefix + "_" + file_prefix[i] + "_%s" % (str(i % num_bio_reps + 1)) + "_tech" + ".xls"
 		wb = Workbook()
 		sheet1 = wb.add_sheet('Sheet 1')
 		count = 1
@@ -158,7 +160,7 @@ def combineTechFiles(tech_reps, exp_per_tech, tech_per_bio, num_comb_tech_exp, f
 
 	return comb_tech_exp, True 
 
-def combineBioFiles(comb_tech_exp,tech_per_bio, num_comb_tech_exp, file_prefix, min_pep, min_bio):
+def combineBioFiles(comb_tech_exp,num_bio_reps, num_comb_tech_exp, file_prefix, min_pep, min_bio):
 	# Function that combines data across biological replicates and outputs Excel files for each set of biological replicates
 	# comb_tech_exp[i][prot_id][j] entries:
 	# j = 0: UniProt ID
@@ -170,12 +172,12 @@ def combineBioFiles(comb_tech_exp,tech_per_bio, num_comb_tech_exp, file_prefix, 
 	# j = 6: Standard deviation of Summed Normalized Spectra
 	# j = 7: Comma Separated Summed Normalized Spectra
 
-	num_comb_bio_exp = num_comb_tech_exp / tech_per_bio
+	num_comb_bio_exp = num_comb_tech_exp / num_bio_reps
 	comb_bio_files = []
 	comb_bio_exp = [{} for i in range(num_comb_bio_exp)]
 
 	start_index = 0
-	end_index = tech_per_bio
+	end_index = num_bio_reps
 	for i in range(num_comb_bio_exp):
 		while start_index < end_index:
 			for prot_id in comb_tech_exp[start_index]:
@@ -193,7 +195,7 @@ def combineBioFiles(comb_tech_exp,tech_per_bio, num_comb_tech_exp, file_prefix, 
 					comb_bio_exp[i][prot_id].append([comb_tech_exp[start_index][prot_id][4]])
 					comb_bio_exp[i][prot_id].append(comb_tech_exp[start_index][prot_id][2])
 			start_index += 1
-		end_index += tech_per_bio
+		end_index += num_bio_reps
 
 		for prot_id in list(comb_bio_exp[i]):
 			num_above_cutoff = 0
@@ -201,11 +203,11 @@ def combineBioFiles(comb_tech_exp,tech_per_bio, num_comb_tech_exp, file_prefix, 
 				if comb_bio_exp[i][prot_id][4][j] >= min_pep:
 					num_above_cutoff += 1
 			if num_above_cutoff >= min_bio:
-				num_zeroes = tech_per_bio - len(comb_bio_exp[i][prot_id][2])
+				num_zeroes = num_bio_reps - len(comb_bio_exp[i][prot_id][2])
 				while num_zeroes > 0:
 					comb_bio_exp[i][prot_id][2].append(0.0)
 					num_zeroes -= 1
-				comb_bio_exp[i][prot_id][3] = comb_bio_exp[i][prot_id][3] / tech_per_bio
+				comb_bio_exp[i][prot_id][3] = comb_bio_exp[i][prot_id][3] / num_bio_reps
 				comb_bio_exp[i][prot_id].append(std(comb_bio_exp[i][prot_id][2]))
 				norm_spectras = ", ".join(str(round(x, 5)) for x in comb_bio_exp[i][prot_id][2])
 				comb_bio_exp[i][prot_id].append(norm_spectras)
@@ -214,20 +216,20 @@ def combineBioFiles(comb_tech_exp,tech_per_bio, num_comb_tech_exp, file_prefix, 
 
 	cur_index = 0
 	for i in range(num_comb_bio_exp):
-		name = csv_prefix + "_" + file_prefix[i * tech_per_bio] + "_bio" + ".xls"
+		name = csv_prefix + "_" + file_prefix[i * num_bio_reps] + "_bio" + ".xls"
 		comb_bio_files.append(name)
-		cur_index += tech_per_bio
-		if tech_per_bio <= 1:
+		cur_index += num_bio_reps
+		if num_bio_reps <= 1:
 			continue
 		wb = Workbook()
 		sheet1 = wb.add_sheet('Sheet 1')
 		count = 1
-		sheet1.write(0, 1, file_prefix[i * tech_per_bio] + ": ID")
-		sheet1.write(0, 2, file_prefix[i * tech_per_bio] + ": UniProtID")
-		sheet1.write(0, 3, file_prefix[i * tech_per_bio] + ": Average spectra")
-		sheet1.write(0, 4, file_prefix[i * tech_per_bio] + ": Standard deviation")
-		sheet1.write(0, 5, file_prefix[i * tech_per_bio] + ": Normalized spectras")
-		sheet1.write(0, 6, file_prefix[i * tech_per_bio] + ": num AAs")
+		sheet1.write(0, 1, file_prefix[i * num_bio_reps] + ": ID")
+		sheet1.write(0, 2, file_prefix[i * num_bio_reps] + ": UniProtID")
+		sheet1.write(0, 3, file_prefix[i * num_bio_reps] + ": Average spectra")
+		sheet1.write(0, 4, file_prefix[i * num_bio_reps] + ": Standard deviation")
+		sheet1.write(0, 5, file_prefix[i * num_bio_reps] + ": Normalized spectras")
+		sheet1.write(0, 6, file_prefix[i * num_bio_reps] + ": num AAs")
 		for prot_id in comb_bio_exp[i]:
 			sheet1.write(count, 0, count)
 			sheet1.write(count, 1, prot_id)
@@ -241,7 +243,7 @@ def combineBioFiles(comb_tech_exp,tech_per_bio, num_comb_tech_exp, file_prefix, 
 
 	return num_comb_bio_exp, comb_bio_files, comb_bio_exp
 
-def multipleChirp(exp_per_tech, tech_per_bio, num_comb_bio_exp, comb_bio_files, comb_bio_exp, file_prefix, correction):
+def multipleChirp(num_tech_reps, num_bio_reps, num_comb_bio_exp, comb_bio_files, comb_bio_exp, file_prefix, correction):
 	# Function that creates a spreadsheet to compare data from different experiments
 	
 	multiple_chirp_comb = {}
@@ -258,7 +260,7 @@ def multipleChirp(exp_per_tech, tech_per_bio, num_comb_bio_exp, comb_bio_files, 
 				multiple_chirp_comb[prot_id][i] = comb_bio_exp[i][prot_id][1]
 				multiple_chirp_comb[prot_id][i + num_comb_bio_exp] = comb_bio_exp[i][prot_id][3] + correction
 			else: 
-				multiple_chirp_comb[prot_id][i] = ",".join(['0.0' for x in range(exp_per_tech * tech_per_bio)])
+				multiple_chirp_comb[prot_id][i] = ",".join(['0.0' for x in range(num_tech_reps * num_bio_reps)])
 				multiple_chirp_comb[prot_id][i + num_comb_bio_exp] =  correction
 
 			multiple_chirp_comb[prot_id][2 * num_comb_bio_exp + i] = (multiple_chirp_comb[prot_id][i + num_comb_bio_exp] / 
@@ -269,9 +271,9 @@ def multipleChirp(exp_per_tech, tech_per_bio, num_comb_bio_exp, comb_bio_files, 
 	sheet1.write(0, 0, "Protein ID")
 	sheet1.write(0, 1, "UniProtID")
 	for i in range(num_comb_bio_exp):
-		sheet1.write(0, i + 2,  file_prefix[i * tech_per_bio] + ": Spectras")
-		sheet1.write(0, i + 2 + num_comb_bio_exp,  file_prefix[i * tech_per_bio] + ": Average Spectra")
-		sheet1.write(0, i + 3 + 2 * num_comb_bio_exp, file_prefix[i * tech_per_bio] + ": Average Spectra / numAAs")
+		sheet1.write(0, i + 2,  file_prefix[i * num_bio_reps] + ": Spectras")
+		sheet1.write(0, i + 2 + num_comb_bio_exp,  file_prefix[i * num_bio_reps] + ": Average Spectra")
+		sheet1.write(0, i + 3 + 2 * num_comb_bio_exp, file_prefix[i * num_bio_reps] + ": Average Spectra / numAAs")
 	sheet1.write(0, 2 + 2 * num_comb_bio_exp, "numAAs")
 
 	count = 1
@@ -289,13 +291,15 @@ def multipleChirp(exp_per_tech, tech_per_bio, num_comb_bio_exp, comb_bio_files, 
 	wb.save(csv_prefix + "_Combined_Experiments.xls")
 
 def main():
-	input_files, multiple_chirp, exp_per_tech, tech_per_bio, correction, min_pep, min_tech, min_bio, min_score = parseArguments()
+	input_files, multiple_chirp, num_tech_reps, num_bio_reps, correction, min_pep, min_tech, min_bio, min_score, min_log = parseArguments()
 	
 	if min_bio == -1:
-		min_bio = tech_per_bio
+		min_bio = num_bio_reps
+
 	if input_files.find("csv") == -1:
 		print "First argument is not a csv file."
 		return
+
 	global csv_prefix
 	csv_prefix = input_files.split(".")[0]
 
@@ -318,15 +322,15 @@ def main():
 			file_prefix.append(prefix[1] + "_" + prefix[2])
 		sample_sheet.close()
 
-	comb_tech_exp, boolean = combineTechFiles(tech_reps, exp_per_tech, tech_per_bio, num_comb_tech_exp, file_prefix, min_tech, min_score)
+	comb_tech_exp, boolean = combineTechFiles(tech_reps, num_tech_reps, num_bio_reps, num_comb_tech_exp, file_prefix, min_tech, min_score, min_log)
 	if not boolean:
 		return 
 
 	num_comb_bio_exp, comb_bio_files, comb_bio_exp = combineBioFiles(comb_tech_exp, 
-			tech_per_bio, num_comb_tech_exp, file_prefix, min_pep, min_bio)
+			num_bio_reps, num_comb_tech_exp, file_prefix, min_pep, min_bio)
 
 	if multiple_chirp:
-		multipleChirp(exp_per_tech, tech_per_bio, num_comb_bio_exp, 
+		multipleChirp(num_tech_reps, num_bio_reps, num_comb_bio_exp, 
 			comb_bio_files, comb_bio_exp, file_prefix, correction)
 
 if __name__ == '__main__':
